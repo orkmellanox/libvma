@@ -255,6 +255,9 @@ sockinfo_tcp::sockinfo_tcp(int fd):
 	si_tcp_logdbg("tcp socket created");
 
 	tcp_pcb_init(&m_pcb, TCP_PRIO_NORMAL);
+#ifdef DEFINED_EXTRA_STATS
+	register_tcp_stats_instance(&m_pcb, &m_p_socket_stats->tcp_stats);
+#endif /* DEFINED_EXTRA_STATS */
 
 	si_tcp_logdbg("new pcb %p pcb state %d", &m_pcb, get_tcp_state(&m_pcb));
 	tcp_arg(&m_pcb, this);
@@ -846,6 +849,7 @@ retry_is_ready:
 					errno = ECONNRESET;
 					goto err;
 				}
+				EXTRA_STATS_INC(m_pcb.p_stats->n_blocked_sndbuf);
 				//force out TCP data before going on wait()
 				tcp_output(&m_pcb);
 
@@ -980,6 +984,13 @@ tx_packet_to_os:
 	return ret;
 }
 
+void sockinfo_tcp::on_retransmit()
+{
+	m_p_socket_stats->counters.n_tx_retransmits++;
+	if (m_pcb.cwnd < m_pcb.ssthresh)
+		EXTRA_STATS_INC(m_pcb.p_stats->n_rtx_ss);
+}
+
 #ifdef DEFINED_TSO
 err_t sockinfo_tcp::ip_output(struct pbuf *p, void* v_p_conn, uint16_t flags)
 {
@@ -1018,7 +1029,7 @@ err_t sockinfo_tcp::ip_output(struct pbuf *p, void* v_p_conn, uint16_t flags)
 	}
 
 	if (is_set(attr.flags, VMA_TX_PACKET_REXMIT)) {
-		p_si_tcp->m_p_socket_stats->counters.n_tx_retransmits++;
+		p_si_tcp->on_retransmit();
 	}
 
 	return ERR_OK;
@@ -1058,7 +1069,7 @@ err_t sockinfo_tcp::ip_output_syn_ack(struct pbuf *p, void* v_p_conn, uint16_t f
 
 	attr = (vma_wr_tx_packet_attr)flags;
 	if (is_set(attr, VMA_TX_PACKET_REXMIT))
-		p_si_tcp->m_p_socket_stats->counters.n_tx_retransmits++;
+		p_si_tcp->on_retransmit();
 
 	((dst_entry_tcp*)p_dst)->slow_send_neigh(p_iovec, count, p_si_tcp->m_so_ratelimit);
 
@@ -1104,7 +1115,7 @@ err_t sockinfo_tcp::ip_output(struct pbuf *p, void* v_p_conn, int is_rexmit, uin
 	}
 
 	if (is_rexmit) {
-		p_si_tcp->m_p_socket_stats->counters.n_tx_retransmits++;
+		p_si_tcp->on_retransmit();
 	}
 
 	return ERR_OK;
@@ -1144,7 +1155,7 @@ err_t sockinfo_tcp::ip_output_syn_ack(struct pbuf *p, void* v_p_conn, int is_rex
 	}
 
 	if (is_rexmit)
-		p_si_tcp->m_p_socket_stats->counters.n_tx_retransmits++;
+		p_si_tcp->on_retransmit();
 
 	((dst_entry_tcp*)p_dst)->slow_send_neigh(p_iovec, count, p_si_tcp->m_so_ratelimit);
 
