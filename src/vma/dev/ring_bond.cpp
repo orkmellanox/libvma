@@ -733,13 +733,15 @@ void ring_bond::popup_recv_rings()
 
 	/* Copy rings from m_bond_rings to m_recv_rings
 	 * that is active to process RX flow.
-	 * For RoCE LAG device (lag_tx_port_affinity > 0) income data is processed by single ring only
+	 * - For RoCE LAG device (lag_tx_port_affinity > 0) income data is processed by single ring only
 	 * Consider using ring related slave with lag_tx_port_affinity = 1
 	 * even if slave is not active.
+	 * - For NETVSC device all rings (vf and tap) should be ready for receive.
 	 */
 	for (uint32_t i = 0; i < m_bond_rings.size(); i++) {
 		for (uint32_t j = 0; j < slaves.size() ; j ++) {
-			if (slaves[j]->if_index != m_bond_rings[i]->get_if_index()) {
+			if ((slaves[j]->if_index != m_bond_rings[i]->get_if_index()) &&
+				((p_ndev->get_is_bond() != net_device_val::NETVSC))) {
 				continue;
 			}
 			if (slaves[j]->lag_tx_port_affinity < 2) {
